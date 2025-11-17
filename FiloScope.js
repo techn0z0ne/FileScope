@@ -2449,10 +2449,15 @@ function updateTextPreview(name, byteOffset, preview) {
 // ──────────────────────────────────────────────────────────────────────
 // Update hex view display
 // ──────────────────────────────────────────────────────────────────────
+// Track last hex view context to avoid unnecessary regeneration
+updateHexView.lastCenterByte = -1;
+updateHexView.lastContextLines = -1;
+
 function updateHexView(name, rawBytes, byteOffset) {
   if (!rawBytes) {
     statusContent.textContent = 'No raw bytes available';
     hideHexCrosshairs();
+    updateHexView.lastCenterByte = -1;
     return;
   }
   
@@ -2462,9 +2467,28 @@ function updateHexView(name, rawBytes, byteOffset) {
     return;
   }
   
+  const bytesPerLine = 16;
+  const clickedLine = Math.floor(byteOffset / bytesPerLine);
+  
+  // Check if we need to regenerate the hex view context window
+  // Only regenerate if the clicked byte is outside ~70% of the current context window
+  let centerByte;
+  const shouldRegenerate = updateHexView.lastCenterByte === -1 
+    || updateHexView.lastContextLines !== statusLinesContext
+    || Math.abs(Math.floor(updateHexView.lastCenterByte / bytesPerLine) - clickedLine) > Math.floor(statusLinesContext * 0.7);
+  
+  if (shouldRegenerate) {
+    centerByte = byteOffset;
+    updateHexView.lastCenterByte = byteOffset;
+    updateHexView.lastContextLines = statusLinesContext;
+  } else {
+    // Keep the same center, just update the highlighting
+    centerByte = updateHexView.lastCenterByte;
+  }
+  
   const byteValue = rawBytes[byteOffset];
   const hexVal = byteValue.toString(16).padStart(2, '0');
-  const preview = formatHexdump(rawBytes, 0, byteOffset, statusLinesContext, showCrosshair);
+  const preview = formatHexdump(rawBytes, 0, centerByte, statusLinesContext, showCrosshair, byteOffset);
   statusContent.innerHTML = `<div style="background:#000;font-family:monospace;white-space:pre;color:#eee">${escapeHtml(name)}:byte=0x${byteOffset.toString(16).padStart(8,'0')} (${byteOffset}d):0x${hexVal}:\n${preview}</div>`;
   
   hideHexCrosshairs();
@@ -2843,8 +2867,20 @@ window.addEventListener('load', () => {
         return response.blob();
       })
       .then(blob => {
-        const file = new File([blob], demoFile, { type: blob.type });
-        handleFile(file);
+        // Create File object and trigger the same processing as drop
+        const file = new File([blob], demoFile, { type: blob.type || 'application/octet-stream' });
+        
+        // Simulate drop event processing
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          processFileData(file, e.target.result);
+        };
+        reader.onerror = (e) => {
+          console.error('FileReader error:', e);
+          statusContent.innerHTML = '<div style="color:#ff6666;padding:8px;">❌ Error reading demo file</div>';
+          loadFileFromStorage();
+        };
+        reader.readAsArrayBuffer(file);
       })
       .catch(err => {
         console.warn('Failed to load demo file:', err);
@@ -2962,10 +2998,6 @@ document.addEventListener('drop', (ev) => {
     }
   }
   
-  // Create unique token for this file load operation
-  const loadToken = Symbol('fileLoad');
-  currentFileLoadToken = loadToken;
-  
   fileName.textContent = file.name;
   fileSize.textContent = formatBytes(file.size);
   
@@ -2989,17 +3021,20 @@ document.addEventListener('drop', (ev) => {
   };
   
   reader.onload = (e) => {
-    try {
-      // Issue 27: Update loading state
-      statusContent.innerHTML = '<div style="color:#00aaff;padding:8px;">⏳ Processing file data...</div>';
-      
-      // Check if this load operation is still valid
-      if (currentFileLoadToken !== loadToken) {
-        console.log('File load cancelled - newer file being loaded');
-        return;
-      }
-      const arrayBuf = e.target.result;
-      const bytes = new Uint8Array(arrayBuf);
+    processFileData(file, e.target.result);
+  };
+  reader.readAsArrayBuffer(file);
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Process file data (shared by drop and demo loading)
+// ──────────────────────────────────────────────────────────────────────
+function processFileData(file, arrayBuf) {
+  try {
+    // Issue 27: Update loading state
+    statusContent.innerHTML = '<div style="color:#00aaff;padding:8px;">⏳ Processing file data...</div>';
+    
+    const bytes = new Uint8Array(arrayBuf);
       
       // Issue 27: Update loading state
       statusContent.innerHTML = '<div style="color:#00aaff;padding:8px;">⏳ Detecting file format...</div>';
@@ -3158,10 +3193,8 @@ document.addEventListener('drop', (ev) => {
         displayBytePreview(initialByteIdx);
       }
       
-      // Save to localStorage for persistence (check token again)
-      if (currentFileLoadToken === loadToken) {
-        saveFileToStorage();
-      }
+      // Save to localStorage for persistence
+      saveFileToStorage();
     } catch (error) {
       // Issue 26: Error boundary for processing
       console.error('Error processing file:', error);
@@ -3171,13 +3204,46 @@ document.addEventListener('drop', (ev) => {
       lineCount.textContent = '—';
       charCount.textContent = '—';
     }
-  };
-  reader.readAsArrayBuffer(file);
-});
+}
 
 // ──────────────────────────────────────────────────────────────────────
 // Manual controls
 // ──────────────────────────────────────────────────────────────────────
+
+// Hex view click handler - select corresponding pixel
+statusContent.addEventListener('click', (ev) => {
+  if (!fileData || !fileData.rawBytes) return;
+  
+  const target = ev.target;
+  
+  // Check if clicked on a hex byte span (they have style attributes for highlighting)
+  if (target.tagName === 'SPAN' && target.hasAttribute('data-byte-offset')) {
+    const byteOffset = parseInt(target.getAttribute('data-byte-offset'));
+    if (byteOffset >= 0 && byteOffset < fileData.rawBytes.length) {
+      displayBytePreview(byteOffset);
+    }
+    return;
+  }
+  
+  // Fallback: try to parse offset from the line if clicked on plain text
+  // Get the clicked position in the hex view
+  const clickedLine = target.textContent || target.innerText;
+  const lines = statusContent.textContent.split('\n');
+  
+  for (let line of lines) {
+    if (line.includes(clickedLine) || clickedLine.includes(line.substring(0, 20))) {
+      // Parse offset from line start (format: "00000000  hex bytes...")
+      const offsetMatch = line.match(/^([0-9a-f]{8})/);
+      if (offsetMatch) {
+        const lineOffset = parseInt(offsetMatch[1], 16);
+        // Approximate byte position - user clicked somewhere on this line
+        displayBytePreview(lineOffset);
+        break;
+      }
+    }
+  }
+});
+
 widthInput.addEventListener('change', () => {
   let newWidth = parseInt(widthInput.value, 10) || 1024;
   newWidth = Math.max(1, Math.min(64000, newWidth));
@@ -3292,13 +3358,20 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-function formatHexdump(bytes, startOffset, clickedOffset, contextLines, showCrosshair) {
-  // Format lines: contextLines before, current (with clicked byte), contextLines after
+function formatHexdump(bytes, startOffset, centerOffset, contextLines, showCrosshair, clickedOffset) {
+  // Format lines: contextLines before, center (with clicked byte), contextLines after
+  // centerOffset: determines which lines to show (the window center)
+  // clickedOffset: determines which byte to highlight (defaults to centerOffset if not provided)
+  if (clickedOffset === undefined) {
+    clickedOffset = centerOffset;
+  }
+  
   const bytesPerLine = 16;
+  const centerLine = Math.floor(centerOffset / bytesPerLine);
   const clickedLine = Math.floor(clickedOffset / bytesPerLine);
   const clickedColumn = clickedOffset % bytesPerLine;
-  const startLine = Math.max(0, clickedLine - contextLines);
-  const endLine = Math.min(Math.floor(bytes.length / bytesPerLine) + 1, clickedLine + contextLines + 1);
+  const startLine = Math.max(0, centerLine - contextLines);
+  const endLine = Math.min(Math.floor(bytes.length / bytesPerLine) + 1, centerLine + contextLines + 1);
   
   // Use template literals for better performance
   const lines = [];
@@ -3315,23 +3388,26 @@ function formatHexdump(bytes, startOffset, clickedOffset, contextLines, showCros
       if (idx < bytes.length) {
         const byte = bytes[idx];
         const isClicked = idx === clickedOffset;
-        const isClickedColumn = showCrosshair && (i === clickedColumn);
+        // Use absolute byte offset for crosshair calculation, not relative line number
+        const byteColumn = idx % bytesPerLine;
+        const isClickedColumn = showCrosshair && (byteColumn === clickedColumn);
         const isClickedLine = showCrosshair && (lineNum === clickedLine);
         const hexStr = byte.toString(16).padStart(2, '0');
         
         // Apply backgrounds: grey for crosshair, cyan for clicked byte
+        // Add data-byte-offset for click handling
         let hexStyle = '';
         if (isClicked) {
-          lineBytes.push(`<span style="background:${backColor};color:${textColor}!important;font-weight:bold">${hexStr}</span>`);
+          lineBytes.push(`<span data-byte-offset="${idx}" style="background:${backColor};color:${textColor}!important;font-weight:bold;cursor:pointer">${hexStr}</span>`);
           hexStyle = 'done';
         } else if (isClickedLine || isClickedColumn) {
-          hexStyle = 'background:rgba(128,128,128,0.5)';
+          hexStyle = `background:rgba(128,128,128,0.5);cursor:pointer`;
         }
         
         if (hexStyle && hexStyle !== 'done') {
-          lineBytes.push(`<span style="${hexStyle}">${hexStr}</span>`);
+          lineBytes.push(`<span data-byte-offset="${idx}" style="${hexStyle}">${hexStr}</span>`);
         } else if (!hexStyle) {
-          lineBytes.push(hexStr);
+          lineBytes.push(`<span data-byte-offset="${idx}" style="cursor:pointer">${hexStr}</span>`);
         }
         
         // ASCII representation
