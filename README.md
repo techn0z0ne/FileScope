@@ -11,6 +11,8 @@ FileScope is a browser-based file visualization tool that renders binary files a
 Currently it includes specialized support for ELF binary format analysis  
 (based on Based on Bastian Molkenthin aka Sunshine2k project) with section detection and interactive navigation.
 
+Online demo: https://techn0z0ne.github.io/FileScope
+
 ## Features
 
 - **Visual Binary Analysis**: Renders any file as a pixel grid with adjustable width
