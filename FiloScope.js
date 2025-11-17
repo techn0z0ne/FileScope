@@ -3216,32 +3216,15 @@ statusContent.addEventListener('click', (ev) => {
   
   const target = ev.target;
   
-  // Check if clicked on a hex byte span (they have style attributes for highlighting)
+  // Only handle clicks directly on hex byte spans with data-byte-offset attribute
+  // Ignore clicks on whitespace, between bytes, on ASCII section, etc.
   if (target.tagName === 'SPAN' && target.hasAttribute('data-byte-offset')) {
     const byteOffset = parseInt(target.getAttribute('data-byte-offset'));
     if (byteOffset >= 0 && byteOffset < fileData.rawBytes.length) {
       displayBytePreview(byteOffset);
     }
-    return;
   }
-  
-  // Fallback: try to parse offset from the line if clicked on plain text
-  // Get the clicked position in the hex view
-  const clickedLine = target.textContent || target.innerText;
-  const lines = statusContent.textContent.split('\n');
-  
-  for (let line of lines) {
-    if (line.includes(clickedLine) || clickedLine.includes(line.substring(0, 20))) {
-      // Parse offset from line start (format: "00000000  hex bytes...")
-      const offsetMatch = line.match(/^([0-9a-f]{8})/);
-      if (offsetMatch) {
-        const lineOffset = parseInt(offsetMatch[1], 16);
-        // Approximate byte position - user clicked somewhere on this line
-        displayBytePreview(lineOffset);
-        break;
-      }
-    }
-  }
+  // Remove fallback parsing - only accept direct clicks on hex byte spans
 });
 
 widthInput.addEventListener('change', () => {
@@ -3414,16 +3397,16 @@ function formatHexdump(bytes, startOffset, centerOffset, contextLines, showCross
         const ch = (byte >= 32 && byte <= 126) ? String.fromCharCode(byte) : '.';
         let asciiStyle = '';
         if (isClicked) {
-          ascii.push(`<span style="background:${backColor};color:${textColor}!important;font-weight:bold">${escapeHtml(ch)}</span>`);
+          ascii.push(`<span data-byte-offset="${idx}" style="background:${backColor};color:${textColor}!important;font-weight:bold;cursor:pointer">${escapeHtml(ch)}</span>`);
           asciiStyle = 'done';
         } else if (isClickedLine || isClickedColumn) {
-          asciiStyle = 'background:rgba(128,128,128,0.5)';
+          asciiStyle = `background:rgba(128,128,128,0.5);cursor:pointer`;
         }
         
         if (asciiStyle && asciiStyle !== 'done') {
-          ascii.push(`<span style="${asciiStyle}">${escapeHtml(ch)}</span>`);
+          ascii.push(`<span data-byte-offset="${idx}" style="${asciiStyle}">${escapeHtml(ch)}</span>`);
         } else if (!asciiStyle) {
-          ascii.push(escapeHtml(ch));
+          ascii.push(`<span data-byte-offset="${idx}" style="cursor:pointer">${escapeHtml(ch)}</span>`);
         }
       } else {
         lineBytes.push('  ');
