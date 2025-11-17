@@ -2818,13 +2818,17 @@ function loadFileFromStorage() {
 
 // Load saved file on page load
 window.addEventListener('load', () => {
-  // Initialize canvas with minimum size so dark background is visible
+  // Initialize canvas to fill the viewport
   if (!fileData) {
-    canvas.width = 100;
-    canvas.height = 100;
+    const canvasWrap = document.getElementById('canvasWrap');
+    const wrapWidth = canvasWrap.clientWidth;
+    const wrapHeight = canvasWrap.clientHeight;
+    
+    canvas.width = Math.max(wrapWidth, 100);
+    canvas.height = Math.max(wrapHeight, 100);
     applyCanvasZoom(canvasZoom);
     ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, 100, 100);
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
   
   loadFileFromStorage();
@@ -3348,3 +3352,4 @@ function formatBytes(bytes) {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
 }
+
