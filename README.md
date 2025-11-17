@@ -2,7 +2,6 @@
 
 **Standalone pixel-view-based file analyser and dissector**
 
-By techn0z0ne (somedudefrom2021@gmail.com), 2025
 
 ## Overview
 
@@ -17,7 +16,7 @@ Online demo: https://techn0z0ne.github.io/FileScope
 
 - **Visual Binary Analysis**: Renders any file as a pixel grid with adjustable width
 - **Color Modes**: HSV (hue + brightness) and grayscale rendering
-- **Zoom & Pan**: Interactive canvas with zoom up to 30× and scroll tracking
+- **Zoom & Pan**: zoom up to 30× and scroll tracking via gestures, +/- and arrow keys
 - **Hex View**: Real-time hex dump with byte inspection
 - **ELF Format Support**:
   - Automatic ELF detection (32-bit)
@@ -124,4 +123,4 @@ This software is not licensed and not intended for use in the design, constructi
 
 See `FileScope.html` header for full license text.
 
-
+By techn0z0ne (somedudefrom2021@gmail.com), 2025
