@@ -2831,7 +2831,29 @@ window.addEventListener('load', () => {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
   
-  loadFileFromStorage();
+  // Check for demo parameter in URL
+  const urlParams = new URLSearchParams(window.location.search);
+  const demoFile = urlParams.get('demo');
+  
+  if (demoFile) {
+    // Load demo file
+    fetch(demoFile)
+      .then(response => {
+        if (!response.ok) throw new Error('Demo file not found');
+        return response.blob();
+      })
+      .then(blob => {
+        const file = new File([blob], demoFile, { type: blob.type });
+        handleFile(file);
+      })
+      .catch(err => {
+        console.warn('Failed to load demo file:', err);
+        loadFileFromStorage();
+      });
+  } else {
+    loadFileFromStorage();
+  }
+  
   updateStorageInfo();
 });
 
@@ -3352,4 +3374,3 @@ function formatBytes(bytes) {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
 }
-
