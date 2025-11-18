@@ -15,23 +15,26 @@ Online demo: https://techn0z0ne.github.io/FileScope
 ## Features
 
 - **Visual Binary Analysis**: Renders any file as a pixel grid with adjustable width
-- **Color Modes**: HSV (hue + brightness) and grayscale rendering
+- **Color Modes**: HSV and Grayscale rendering
 - **Zoom & Pan**: zoom up to 30× and scroll tracking via gestures, +/- and arrow keys
 - **Hex View**: Real-time hex dump with byte inspection
-- **ELF Format Support**:
-  - Automatic ELF detection (32-bit)
+- **Crosshair & Pixel Marker**: Visual feedback for byte selection
+- **Performance Optimized**: Debounced rendering with optional overlay blinking (currently only for ELF)
+  
+- **ELF Format Support** (Based on Bastian Molkenthin project from 2019):
+  - Automatic ELF detection (32/64-bit)
   - Section boundary visualization with colored overlays
   - Interactive section list with offset/size details
   - Bidirectional navigation (click pixel → highlight section, click section → jump to byte)
   - Header/program header/section header identification
-- **Crosshair & Pixel Marker**: Visual feedback for byte selection
-- **Performance Optimized**: Debounced rendering with optional overlay blinking
+  
+- **Firmware / Magic / Mach-O formats** next goal (via podman, I guess)...
 
 ## Screenshots
 
 ### Text File Visualization
 ![Text File Preview](screen-shots/preview_txt.jpg)
-*Text file rendered in HSV mode showing character patterns*
+*Text file rendered in HSV mode visualizing the entropy of character patterns*
 
 ### ELF Binary Analysis
 ![ELF File Preview](screen-shots/preview_elf.jpg)
@@ -39,7 +42,7 @@ Online demo: https://techn0z0ne.github.io/FileScope
 
 ### Binary File Visualization
 ![Binary File Preview](screen-shots/preview_bin.jpg)
-*Binary file with visual entropy patterns (up to 250mb currently)*
+*Binary file with (up to 250mb currently)*
 
 ## Usage
 
