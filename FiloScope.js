@@ -1683,6 +1683,18 @@ const renderTime = document.getElementById('renderTime');
 const debugInfo = document.getElementById('debugInfo');
 const elfInfo = document.getElementById('elfInfo');
 
+// Hide welcome message after 15 seconds
+const welcomeMessage = document.getElementById('welcomeMessage');
+if (welcomeMessage) {
+  setTimeout(() => {
+    welcomeMessage.style.transition = 'opacity 0.5s';
+    welcomeMessage.style.opacity = '0';
+    setTimeout(() => {
+      welcomeMessage.style.display = 'none';
+    }, 500);
+  }, 15000);
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // Canvas transform utility
 // ──────────────────────────────────────────────────────────────────────
