@@ -1,6 +1,41 @@
 /*
  * FileScope: Standalone pixel-view-based file analyser and dissector by techn0z0ne (somedudefrom2021@gmail.com), 2025
  *
+ * Non-military license for peaceful projects (based on BSD 3-Clause)
+ *
+ * Copyright (c) 2025 techn0z0ne (somedudefrom2021@gmail.com). All Rights Reserved.
+ * 
+ * Redistribution and use in source and binary forms, with or without modification,
+ * are permitted only when the following conditions are met:
+ * 
+ * 1. Redistributions of source code or binary forms containing or based on source
+ *    code must reproduce the above copyright notice, this list of conditions and
+ *    the following disclaimer in the documentation and/or other materials
+ *    provided with the distribution.
+ * 
+ * 2. Neither the name of the copyright holder nor the names of its contributors
+ *    may be used to endorse or promote products derived from this software without
+ *    specific prior written permission.
+ * 
+ * 3. The source code or its derivatives in any form of delivery,
+ *    including binary/executable, linkable, pluggable or online form, is not licensed
+ *    and is not intended for use in the design, construction, operation or maintenance
+ *    of any military facilities or systems, as well as for military research, or for
+ *    the development of military systems or for their production, as well as weapons,
+ *    systems designed for intentional harming or depriving the life or business,
+ *    including any software used to support military facilities or military systems,
+ *    or used for military or harming purposes.
+ * 
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS “AS IS” AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+ * SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
  * Based on Bastian Molkenthin aka Sunshine2k project
  * www.sunshine2k.de | www.bastian-molkenthin.de
  *
@@ -9,6 +44,17 @@
  * DOES NOT SUPPORT 64 BIT ELF - due to lack of native 64bit values in Typescript /  Javascript.
  * It still tries to load 64 bit ELF, but this only works if the upper 32bit of all 64bit values ar zero.
 */
+
+// shows warnings in top bar for suspicious ELF files
+function showSecurityAlert(message) {
+    const alertDiv = document.getElementById('securityAlert');
+    const alertText = document.getElementById('securityAlertText');
+    if (alertDiv && alertText) {
+        alertText.textContent = '⚠️ SECURITY WARNING: ' + message;
+        alertDiv.style.display = 'block';
+        console.error('[SECURITY ALERT]', message);
+    }
+}
 
 var ELFModel;
 (function (ELFModel) {
@@ -122,8 +168,10 @@ var ELFModel;
         }
         ELFHeader.prototype.load = function () {
             var _this = this;
-            if (this.FA.getDataView().byteLength < 52)
+            if (this.FA.getDataView().byteLength < 52) {
+                showSecurityAlert('Invalid ELF header! File size ' + this.FA.getDataView().byteLength + ' bytes is too small (minimum 52 bytes required); (CWE-20)');
                 return ELFFileLoadResult.INVALID_ELF;
+            }
             var curOff = 0;
             this.E_ident_mag = new ELFElement(this.FA, curOff, 4);
             curOff += 4;
@@ -840,15 +888,40 @@ var ELFModel;
             var secNameSectionIdx;
             secNameSectionIdx = this.elfFile.elfHeader.E_Shstrndx.value;
             if (secNameSectionIdx != 0) {
+                // Out-of-bounds array access ?
+                if (secNameSectionIdx >= this.elfFile.elfSectionHeaderTables.length) {
+                    showSecurityAlert('Out-of-bounds section access! E_Shstrndx=' + secNameSectionIdx + ' but only ' + this.elfFile.elfSectionHeaderTables.length + ' sections exist (CWE-125/787)');
+                    return "[invalid section index]";
+                }
                 /* get section containing section names */
                 var strSec = this.elfFile.elfSectionHeaderTables[secNameSectionIdx];
                 /* get file offset where section name starts */
                 var strStartOffset = strSec.Sh_Offset.Get32BitValue() + this.Sh_Name.Get32BitValue();
+                
+                // Integer overflow in offset calculation ?
+                if (strStartOffset >= this.FA.getDataView().byteLength) {
+                    showSecurityAlert('Integer overflow in section offset! Offset=0x' + strStartOffset.toString(16) + ' exceeds file size (' + this.FA.getDataView().byteLength + ' bytes); (CWE-125)');
+                    return "[invalid offset]";
+                }
                 /* specify theoretical upper bound for length in case of errors */
                 var strMaxLength = strSec.Sh_Offset.Get32BitValue() + strSec.Sh_Size.Get32BitValue() - strStartOffset;
+                
+                // Validate string length to prevent huge reads ?
+                if (strMaxLength < 0 || strMaxLength > 0x10000000) { // 256MB sanity check
+                    showSecurityAlert('Suspicious string length! Length=' + strMaxLength + ' bytes (likely integer overflow) - would cause 4GB read attempt; (CWE-190)');
+                    return "[invalid string length]";
+                }
+                
+                const MAX_STRING_LENGTH = 4096;
+                const safeMaxLength = Math.min(
+                    strMaxLength,
+                    this.FA.getDataView().byteLength - strStartOffset,
+                    MAX_STRING_LENGTH
+                );
+                
                 /* read actual string */
                 var str = "";
-                str = this.FA.ReadByteString(strStartOffset, strMaxLength);
+                str = this.FA.ReadByteString(strStartOffset, safeMaxLength);
                 return str;
             }
             else {
@@ -1418,6 +1491,7 @@ var ELFModel;
                 var noteName = "";
                 if (namesz.Get32BitValue() > 0) {
                     if (curOff + namesz.Get32BitValue() > this.FA.getDataView().byteLength) {
+                        showSecurityAlert('Note name field overflow. Offset=' + curOff + ' + size=' + namesz.Get32BitValue() + ' exceeds file size; (CWE-125)');
                         result = ELFFileLoadResult.INVALID_ELF;
                         break;
                     }
@@ -1431,8 +1505,19 @@ var ELFModel;
                 }
                 var noteDesc = [];
                 if (descsz.Get32BitValue() > 0) {
+                    // Memory bomb vulnerability ?
+                    const MAX_NOTE_DESC_SIZE = 1024 * 1024; // 1MB reasonable limit
+                    
+                    if (descsz.Get32BitValue() > MAX_NOTE_DESC_SIZE) {
+                        const ratio = (descsz.Get32BitValue() / this.FA.getDataView().byteLength).toFixed(0);
+                        const gbSize = (descsz.Get32BitValue() / (1024*1024*1024)).toFixed(2);
+                        showSecurityAlert('Note section memory bomb! Descriptor=' + descsz.Get32BitValue() + ' bytes (' + ratio + 'x file size, ' + gbSize + 'GB); (CWE-770)');
+                        return ELFFileLoadResult.INVALID_ELF;
+                    }
+                    
                     for (var i = 0; i < descsz.Get32BitValue(); i++) {
                         if (curOff > this.FA.getDataView().byteLength) {
+                            showSecurityAlert('Note descriptor read overflow! Reading past EOF at offset ' + curOff + '; (CWE-125)');
                             result = ELFFileLoadResult.INVALID_ELF;
                             break;
                         }
@@ -1472,10 +1557,27 @@ var ELFModel;
         }
         ELFFile.prototype.loadProgramHeaderTables = function () {
             /* NOTE: following code only works with 32bit ELF files */
+            
+            // Program header memory bomb ?
+            const phOff = this.elfHeader.E_PhOff.Get32BitValue();
+            const phNum = this.elfHeader.E_Phnum.Get32BitValue();
+            const phEntSize = this.elfHeader.E_Phentsize.Get32BitValue();
+            const fileSize = this.elfFileAccess.getDataView().byteLength;
+            
             if (((this.elfHeader.E_PhOff.value == 0) && (this.elfHeader.E_PhOff.value2 == 0)) ||
-                ((this.elfHeader.E_PhOff.Get32BitValue() + (this.elfHeader.E_Phnum.Get32BitValue() * this.elfHeader.E_Phentsize.Get32BitValue())) > this.elfFileAccess.getDataView().byteLength)) {
+                ((phOff + (phNum * phEntSize)) > fileSize)) {
+                showSecurityAlert('Invalid program header table. Offset=' + phOff + ' + size=' + (phNum * phEntSize) + ' exceeds file size ' + fileSize + ' bytes; (CWE-125)');
                 return ELFFileLoadResult.INVALID_ELF;
             }
+            
+            // Check for unreasonably large file size (>500MB) with program headers at end
+            const MAX_SAFE_FILE_SIZE = 500 * 1024 * 1024; // 500MB
+            if (fileSize > MAX_SAFE_FILE_SIZE && phOff > fileSize / 2) {
+                const fileMB = (fileSize / (1024 * 1024)).toFixed(1);
+                const phOffMB = (phOff / (1024 * 1024)).toFixed(1);
+                showSecurityAlert('Suspicious large file detected. File=' + fileMB + 'MB with program headers at offset ' + phOffMB + 'MB; (CWE-125)');
+            }
+            
             for (var headerIndex = 0; headerIndex < this.elfHeader.E_Phnum.Get32BitValue(); headerIndex++) {
                 this.elfProgramHeaderTables.push(new ELFProgramHeaderTable(this, headerIndex, this.elfFileAccess));
                 this.elfProgramHeaderTables[headerIndex].load(this.elfHeader.E_PhOff.Get32BitValue() + headerIndex * this.elfHeader.E_Phentsize.Get32BitValue(), this.elfHeader);
@@ -1486,6 +1588,7 @@ var ELFModel;
             /* NOTE: following code only works with 32bit ELF files */
             if (((this.elfHeader.E_ShOff.value == 0) && (this.elfHeader.E_ShOff.value2 == 0)) ||
                 ((this.elfHeader.E_ShOff.Get32BitValue() + (this.elfHeader.E_Shnum.Get32BitValue() * this.elfHeader.E_Shentsize.Get32BitValue())) > this.elfFileAccess.getDataView().byteLength)) {
+                showSecurityAlert('Invalid section header table! Offset + size exceeds file bounds; (CWE-125)');
                 return ELFFileLoadResult.INVALID_ELF;
             }
             for (var headerIndex = 0; headerIndex < this.elfHeader.E_Shnum.Get32BitValue(); headerIndex++) {
@@ -1928,13 +2031,13 @@ function renderThumbnail(width) {
   
   // Update debugInfo with render stats
   if (adjustedWidth !== width) {
-    debugInfo.innerHTML = `Rendered: ${adjustedWidth}×${height}<br>` +
-                          `Adjusted from ${width}px<br>` +
-                          `${totalBytes.toLocaleString()} bytes in ${elapsed}ms<br>` +
+    debugInfo.textContent = `Rendered: ${adjustedWidth}×${height}\n` +
+                          `Adjusted from ${width}px\n` +
+                          `${totalBytes.toLocaleString()} bytes in ${elapsed}ms\n` +
                           `Zoom: ${canvasZoom.toFixed(3)}× (${(canvasZoom * 100).toFixed(0)}%)`;
   } else {
-    debugInfo.innerHTML = `Rendered: ${adjustedWidth}×${height}<br>` +
-                          `${totalBytes.toLocaleString()} bytes in ${elapsed}ms<br>` +
+    debugInfo.textContent = `Rendered: ${adjustedWidth}×${height}\n` +
+                          `${totalBytes.toLocaleString()} bytes in ${elapsed}ms\n` +
                           `Zoom: ${canvasZoom.toFixed(3)}× (${(canvasZoom * 100).toFixed(0)}%)`;
   }
   
@@ -3043,6 +3146,12 @@ document.addEventListener('drop', (ev) => {
 // ──────────────────────────────────────────────────────────────────────
 function processFileData(file, arrayBuf) {
   try {
+    const autoClearAlert = document.getElementById('autoClearAlert');
+    const alertDiv = document.getElementById('securityAlert');
+    if (alertDiv && autoClearAlert && autoClearAlert.checked) {
+      alertDiv.style.display = 'none';
+    }
+    
     // Issue 27: Update loading state
     statusContent.innerHTML = '<div style="color:#00aaff;padding:8px;">⏳ Processing file data...</div>';
     
@@ -3146,9 +3255,22 @@ function processFileData(file, arrayBuf) {
               const secName = section.getName();
               
               if (secSize > 0 && secOffset > 0) {
+                // secOffset=0xFFFFFFF0 + secSize=0x100 = 0xF0 (wraps around)
+                if (secOffset > 0xFFFFFFFF - secSize) {
+                  showSecurityAlert('Integer overflow in section boundary. Section "' + (secName || i) + '" offset=0x' + secOffset.toString(16) + ' + size=0x' + secSize.toString(16) + ' exceeds 32-bit boundary; (CWE-190)');
+                  continue; // Skip this section
+                }
+                
+                // Validate against actual file size
+                const secEnd = secOffset + secSize;
+                if (secEnd > bytes.length) {
+                  showSecurityAlert('Section boundary exceeds file size! Section "' + (secName || i) + '" claims end=0x' + secEnd.toString(16) + ' but file is only ' + bytes.length + ' bytes; (CWE-20)');
+                  continue; // Skip this section
+                }
+                
                 appState.sectionOverlays.push({
                   start: secOffset,
-                  end: secOffset + secSize,
+                  end: secEnd,
                   label: secName || `Section ${i}`,
                   color: sectionColors[i % sectionColors.length]
                 });
