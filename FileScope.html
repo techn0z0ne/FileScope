@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 <html>
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' data:;">
 <title>FileScope: File RAW Viewer</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -327,6 +328,10 @@ body {
   </div>
 </div>
 
+<div id="securityAlert" style="background: #ff0000; color: #fff; padding: 10px 12px; text-align: center; font-size: 13px; font-weight: bold; display: none; border-bottom: 2px solid #cc0000;">
+  <span id="securityAlertText"></span>
+</div>
+
 <div id="welcomeMessage" style="background: #1a1a1a; border-bottom: 1px solid #444; padding: 10px 12px; text-align: center; color: #888; font-size: 13px; display: flex; justify-content: space-between; align-items: center;">
   <span style="flex: 1;"></span>
   <span style="flex: 1;">Drop file to page • Click on pixel to inspect</span>
@@ -393,6 +398,11 @@ body {
   </div>
   
   <button id="saveButton" style="grid-column: 6; grid-row: 1;" aria-label="Save rendered canvas as PNG image">Save Image</button>
+  
+  <label style="cursor: pointer; text-transform: none; font-size: 12px; grid-column: 7; grid-row: 2; align-self: center; justify-self: start; margin-left: 8px;">
+    <input type="checkbox" id="autoClearAlert" checked style="margin-right: 4px;" aria-label="Auto-clear security alerts">Auto-Clear Alerts
+  </label>
+  
   <button id="clearStorageBtn" style="grid-column: 7; grid-row: 1; background: #cc3300;" aria-label="Clear saved file from browser storage">Clear Storage</button>
 </div>
 
